@@ -98,13 +98,12 @@ class TestCalculateWaterBalance(unittest.TestCase):
         self.report.calculate_consumptive_use().save_consumptive_use_to_csv('data')
 
 
-class TestCalcualteLrpReport(unittest.TestCase):
+class TestCalculateLrpReport(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         fn_pdf = 'data/WY2023_Q1_qtrly_report_00001_Maradani.pdf'
         cls.report = query_openet.GenerateLrpReport.from_pdf_template(fn_pdf)
-
 
     def test_constructor_from_pdf(self):
         fn_pdf = 'data/WY2023_Q1_qtrly_report_00001_Maradani.pdf'
@@ -115,9 +114,26 @@ class TestCalcualteLrpReport(unittest.TestCase):
         self.report.generate_lrp_report('data/Year1_enrolled_nonrepurposed_pp.pq',
                                         'data/Year1_enrolled_nonrepurposed_ET.pq',
                                         'data/EKIfld_IDs_key.csv',
-                                        2023,
-                                        "Q2"
+                                        2024,
                                         )
+
+
+class TestPdf(unittest.TestCase):
+    def test_pdf(self):
+        pdf = query_openet.Pdf()
+        df = pd.read_parquet('./data/test_df.pq').reset_index()
+        pdf.print_page(df=df, quarter='Q4', water_year=2023, **{"LRPAgreementNumber": "0001",
+                                                         "LRPParticipantName": "Syam Maradani",
+                                                         "AreaofLandRepurposed": 480.63,
+                                                         "MinimumWaterUseReduction": 939.69,
+                                                         "BaselineWaterUse": 1326.25,
+                                                         "MaximumConsumptiveUse": 383.56})
+
+    def test_table(self):
+        pdf = query_openet.Pdf()
+        df = pd.read_parquet('./data/test_df.pq')
+
+        table = pdf._table(df.reset_index())
 
 
 
