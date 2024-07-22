@@ -14,18 +14,18 @@ import requests
 from PIL import Image
 from fpdf import FPDF
 from fpdf.fonts import FontFace
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-
 # Import Chris Heppner's SMB functions
 from lrp_update.smb_for_LRP import calc_SMB_for_time_series as smb
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
-INCHES_TO_FEET = 1./12.
+INCHES_TO_FEET = 1. / 12.
 
 
 class OpenetApi:
     """Manages connections with the OpenET
     server and the retrieval of precipitation and ET datasets.
      """
+
     def __init__(self,
                  path_dataset: str,
                  api_key: str):
@@ -308,6 +308,7 @@ class CalculateWaterBalance:
 
 class GenerateLrpReport:
     """Handles reading and writing pdf's for report"""
+
     def __init__(self, lrp_agreement_number,
                  lrp_participant_name,
                  area_of_land_repurposed,
@@ -401,12 +402,11 @@ class GenerateLrpReport:
             fn_report_out (str): filename of the pdf report with results
         """
 
-
         year = water_year
         match quarter:
             case "Q1":
                 month, day = 12, 31
-                year = year-1
+                year = year - 1
             case "Q2":
                 month, day = 3, 31
             case "Q3":
@@ -432,12 +432,13 @@ class GenerateLrpReport:
                                                       obj_smb.df_smb.index.levels[1].year + 1))
         df_wy = obj_smb.df_smb[obj_smb.df_smb['water_year'] == water_year]
         df_wy.loc[:, ['Q']] = pd.cut(df_wy.index.get_level_values(1).month,
-                            bins=[0, 3, 6, 9, 12],
-                            labels=["Q2", "Q3", "Q4", "Q1"],
-                            right=True)
+                                     bins=[0, 3, 6, 9, 12],
+                                     labels=["Q2", "Q3", "Q4", "Q1"],
+                                     right=True)
 
         df_sum = df_wy.groupby('Q', observed=True).sum().reindex(["Q1", "Q2", "Q3", "Q4"]).fillna(0)
-        df_sum["cons_use_ss_af"] = df_sum["cons_use_ss"] * INCHES_TO_FEET * float(self.area_of_land_repurposed.split()[0])
+        df_sum["cons_use_ss_af"] = df_sum["cons_use_ss"] * INCHES_TO_FEET * float(
+            self.area_of_land_repurposed.split()[0])
         df_sum["total_cons_use_ss_af"] = df_sum["cons_use_ss_af"].cumsum()
         fig = self._plot(obj_smb.df_smb)
 
@@ -601,7 +602,8 @@ class Pdf(FPDF):
             row.cell("Quarter", align='C')
             row.cell("Months, Year", align='C')
 
-            for months, (i, df_row) in zip([f"Oct-Dec, {wy-1}", f"Jan-Mar, {wy}", f"Apr-Jun, {wy}", f"Jul-Sep, {wy}"], df.iterrows()):
+            for months, (i, df_row) in zip([f"Oct-Dec, {wy - 1}", f"Jan-Mar, {wy}", f"Apr-Jun, {wy}", f"Jul-Sep, {wy}"],
+                                           df.iterrows()):
                 row = table.row()
                 row.cell(df_row["Q"], align='C')
                 row.cell(f"{months}", align='C')
