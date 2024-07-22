@@ -2,42 +2,63 @@
 Author: Marco Maneta
 email: mmaneta@ekiconsult.com
 """
-import os
 import datetime
+import os
 
 import fpdf
-import numpy as np
-import pypdf
-from fpdf import FPDF
-from fpdf.fonts import FontFace
-
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import numpy as np
 import pandas as pd
+import pypdf
 import requests
 from PIL import Image
+from fpdf import FPDF
+from fpdf.fonts import FontFace
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 # Import Chris Heppner's SMB functions
 from lrp_update.smb_for_LRP import calc_SMB_for_time_series as smb
 
+INCHES_TO_FEET = 1./12.
+
 
 class OpenetApi:
+    """Manages connections with the OpenET
+    server and the retrieval of precipitation and ET datasets.
+     """
     def __init__(self,
                  path_dataset: str,
                  api_key: str):
+        """
+        Initializes the OpenetApi instance.
+
+        Args:
+               path_dataset (str): Path to the folder with the dataset.
+               api_key (str): API key for authentication.
+        """
         self.api_key = api_key
         self.path_dataset = path_dataset
         self.df_data = None
 
     @classmethod
     def from_file(cls,
-                  path_datasets: str,  # path to master parquet datasets
+                  path_dataset: str,  # path to master csv datasets
                   fn_key: str):
+        """
+        Creates an instance of OpenetApi from a file containing the API key.
+
+        Args:
+            path_datasets (str): Path to the folder with master datasets.
+            fn_key (str): Path to the file containing the API key.
+
+        Returns:
+            OpenetApi: An instance of the OpenetApi class.
+        """
 
         with open(fn_key) as f:
             key = f.read()
 
-        return cls(path_datasets, key)
+        return cls(path_dataset, key)
 
     def update_local_dataset(self,
                              variable,
@@ -53,19 +74,39 @@ class OpenetApi:
                              query_type="multipolygon",
                              file_format="JSON",
                              ):
-        # Year1_enrolled_nonrepurposed
+        """
+        Updates the local dataset with new data from the OpenET server.
+
+        Args:
+            variable (str): The variable to update.
+            start_date (str): The start date for the data retrieval.
+            end_date (str): The end date for the data retrieval.
+            interval (str): The interval for the data retrieval.
+            model (str): The model to use for data retrieval.
+            reducer (str): The reducer to use for data retrieval.
+            reference_et (str): The reference ET to use.
+            units (str): The units for the data.
+            attributes (list): The attributes to retrieve.
+            asset_id (str, optional): The asset ID. Defaults to None.
+            query_type (str, optional): The type of query. Defaults to "multipolygon".
+            file_format (str, optional): The file format for the data. Defaults to "JSON".
+
+        Raises:
+            Exception: If the query type is not supported.
+        """
+        # e.g. Year1_enrolled_nonrepurposed
         year, enrolled, repurposed = asset_id.split('/')[-1].split('_')
 
         match query_type:
             case "multipolygon":
                 url = "https://openet-api.org/raster/timeseries/multipolygon"
-                fn_ds = os.path.join(self.path_dataset, asset_id.split('/')[-1] + f"_{variable}.pq")
+                fn_ds = os.path.join(self.path_dataset, asset_id.split('/')[-1] + f"_{variable}.csv")
             case _:
                 raise Exception(f"query type {query_type} not supported")
 
         df_dataset = None
         try:
-            df_dataset = pd.read_parquet(fn_ds)
+            df_dataset = pd.read_csv(fn_ds)
         except FileNotFoundError as e:
             pass
 
@@ -110,11 +151,12 @@ class OpenetApi:
         self.df_data = pd.read_csv(r['url'])
 
         if df_dataset is not None:
-            df_dataset = df_dataset.append(self.df_data).drop_duplicates(subset=['time'], keep='first')
+            df_dataset = pd.concat([df_dataset, self.df_data], ignore_index=True).drop_duplicates(subset=['time'],
+                                                                                                  keep='first')
         else:
             df_dataset = self.df_data
 
-        df_dataset.to_parquet(fn_ds)
+        df_dataset.to_csv(fn_ds)
 
     def _build_query(self,
                      variable,
@@ -151,6 +193,7 @@ class OpenetApi:
 
 class _ConsumptiveUse:
     """Internal Class"""
+
     def __init__(self, df_smb, year, end_date, repurposed):
         self.df_smb = df_smb
         self.year = year
@@ -168,8 +211,23 @@ class CalculateWaterBalance:
                  fn_et: str,
                  fn_fld_key: str,
                  end_date: str):
+        """
+        Calculates the water balance for selected land parcels.
+        Args:
+            fn_pp (str): Path to the csv precipitation file.
+            fn_et (str): Path to the csv ET file.
+            fn_fld_key (str): Path to the fld key file.
+            end_date (str): The end date for the data retrieval.
+        """
 
-        year, _, repurposed, _ = os.path.split(fn_pp)[1].split('_')
+        end_date = pd.to_datetime(end_date)
+        try:
+            year, _, repurposed, _ = os.path.split(fn_pp)[1].split('_')
+        except ValueError as e:
+            print(f"File name {fn_pp} is not valid. It needs to be in the format of `Year_enrolled_repurposed_var.csv`")
+            print(f"where `Year [Year1, Year2]`, `repurposed ['repurposed, nonrepurposed']`, `var [pr, ET]`")
+            raise
+
         self.lpr_year = year
         if self.lpr_year != os.path.split(fn_et)[1].split('_')[0]:
             print(f"years in {fn_pp} and {fn_et} do not match")
@@ -180,11 +238,23 @@ class CalculateWaterBalance:
             raise Exception(f"repurposed in {fn_pp} and {fn_et} do not match")
 
         self.eki_fld_id_keys = pd.read_csv(fn_fld_key)
-        self.df_et = pd.read_parquet(fn_et)
-        self.df_pp = pd.read_parquet(fn_pp)
+        try:
+            self.df_et = pd.read_csv(fn_et)
+        except FileNotFoundError as e:
+            print(f"File {fn_et} not found.")
+            raise
+
+        try:
+            self.df_pp = pd.read_csv(fn_pp)
+        except FileNotFoundError as e:
+            print(f"File {fn_pp} not found.")
+            raise
 
         self.df_et['time'] = pd.to_datetime(self.df_et['time'])
         self.df_pp['time'] = pd.to_datetime(self.df_pp['time'])
+
+        self.df_et = self.df_et[self.df_et['time'] <= end_date]
+        self.df_pp = self.df_pp[self.df_pp['time'] <= end_date]
 
         # Filter keys
         is_repurposed = 'Y' if repurposed == 'repurposed' else 'N'
@@ -198,6 +268,13 @@ class CalculateWaterBalance:
     def calculate_consumptive_use(self,
                                   concat_appl_id: str = None,
                                   ):
+        """Consumptive use for parcel with id `concat_appl_id`
+        Args:
+            concat_appl_id (str): The concat_appl_id for the parcel.
+
+        Returns:
+            An object of type _ConsumptiveUse that with method to save results to a csv file
+        """
         if concat_appl_id is None:
             self.df_smb = self.eki_fld_id_keys.groupby('concat_appl_ID').apply(self._run_consumptive_use_calcs)
         else:
@@ -230,35 +307,48 @@ class CalculateWaterBalance:
 
 
 class GenerateLrpReport:
+    """Handles reading and writing pdf's for report"""
     def __init__(self, lrp_agreement_number,
-                          lrp_participant_name,
-                          area_of_land_repurposed,
-                          minimum_water_use_reduction,
-                          baseline_water_user,
-                          maximum_consumptive_use):
-
+                 lrp_participant_name,
+                 area_of_land_repurposed,
+                 minimum_water_use_reduction,
+                 baseline_water_use,
+                 maximum_consumptive_use):
+        """
+        Args:
+            lrp_agreement_number (str): The LRP agreement number for the report
+            lrp_participant_name (str): The participant name for the report
+            area_of_land_repurposed (str): The area of land repurposed (ac)
+            minimum_water_use_reduction (str): The minimum water usage reduction (ac-ft per year)
+            baseline_water_use (str): The baseline water use (ac-ft per year)
+            maximum_consumptive_use (str): The maximum consumptive use (ac-ft per year)
+        """
 
         self.lrp_participant_name = lrp_participant_name
         self.lrp_agreement_number = lrp_agreement_number
         self.area_of_land_repurposed = area_of_land_repurposed
         self.minimum_water_use_reduction = minimum_water_use_reduction
-        self.baseline_water_user = baseline_water_user
+        self.baseline_water_user = baseline_water_use
         self.maximum_consumptive_use = maximum_consumptive_use
 
         self.pdf = Pdf()
 
-
     @classmethod
     def from_pdf_template(cls, fn_pdf_template):
+        """Initializes the object from information extracted from an
+        older pdf report
+        args:
+        fn_pdf_template (str): The pdf report to be used as template
+        """
         pdf = pypdf.PdfReader(fn_pdf_template)
         dct_info = cls._parse_pdf_contents(pdf)
 
         info = [dct_info["LRPAgreementNumber"],
-                    dct_info["LRPParticipantName"],
-                    dct_info["AreaofLandRepurposed"],
-                    dct_info["MinimumWaterUseReduction"],
-                    dct_info["BaselineWaterUse"],
-                    dct_info['MaximumConsumptiveUse']]
+                dct_info["LRPParticipantName"],
+                dct_info["AreaofLandRepurposed"],
+                dct_info["MinimumWaterUseReduction"],
+                dct_info["BaselineWaterUse"],
+                dct_info['MaximumConsumptiveUse']]
 
         print("Creating report with the following information")
         for key, value in dct_info.items():
@@ -282,60 +372,94 @@ class GenerateLrpReport:
                     key = value = "default"
                 key2 = ''.join(c for c in key if c.isalnum())
                 if key2 in ["LRPAgreementNumber",
-                           "LRPParticipantName",
-                           "AreaofLandRepurposed",
-                           "MinimumWaterUseReduction",
-                           "BaselineWaterUse",
-                           "MaximumConsumptiveUse"]:
+                            "LRPParticipantName",
+                            "AreaofLandRepurposed",
+                            "MinimumWaterUseReduction",
+                            "BaselineWaterUse",
+                            "MaximumConsumptiveUse"]:
                     key_info[key2] = value
 
             return key_info
 
-    def generate_lrp_report(self, fn_pp,
+    def generate_lrp_report(self,
+                            fn_pp,
                             fn_et,
                             fn_fld_key,
                             water_year,
+                            quarter,
+                            fn_report_out
                             ):
-        end_date = datetime.date(water_year, 9, 30)
-        #wy = datetime.strptime(water_year, "%Y")
+        """
+        Calculates water consumption and generates the LRP report
+
+        Args:
+            fn_pp (str): path to the precipitation file from open et
+            fn_et (str): path to the evapotranspiration file from open et
+            fn_fld_key (str): path to the files with fld keys
+            water_year (int): water year of interest for the report
+            quarter (str): quarter of interest for the report
+            fn_report_out (str): filename of the pdf report with results
+        """
+
+
+        year = water_year
+        match quarter:
+            case "Q1":
+                month, day = 12, 31
+                year = year-1
+            case "Q2":
+                month, day = 3, 31
+            case "Q3":
+                month, day = 6, 30
+            case "Q4":
+                month, day = 9, 30
+            case _:
+                print(f"quarter needs to be on of Q1, Q2, Q3, or Q4, not {quarter}")
+                return
+
+        end_date = datetime.date(year, month, day)
+        # wy = datetime.strptime(water_year, "%Y")
 
         app_id = self.lrp_agreement_number.strip()
         obj_smb = CalculateWaterBalance(fn_pp,
-                              fn_et,
-                              fn_fld_key,
-                              end_date,
-                              ).calculate_consumptive_use(app_id)
+                                        fn_et,
+                                        fn_fld_key,
+                                        end_date.strftime("%m-%d-%Y"),
+                                        ).calculate_consumptive_use(app_id)
 
-
-
-        obj_smb.df_smb['water_year'] = (obj_smb.df_smb.index.levels[1].year.where(obj_smb.df_smb.index.levels[1].month < 10,
-                                                                                  obj_smb.df_smb.index.levels[1].year+1))
+        obj_smb.df_smb['water_year'] = (
+            obj_smb.df_smb.index.levels[1].year.where(obj_smb.df_smb.index.levels[1].month < 10,
+                                                      obj_smb.df_smb.index.levels[1].year + 1))
         df_wy = obj_smb.df_smb[obj_smb.df_smb['water_year'] == water_year]
-        df_wy['Q'] = pd.cut(df_wy.index.get_level_values(1).month,
-                            bins=[0,3,6,9,12],
-                            labels=["Q1", "Q2", "Q3", "Q4"],
-                           right=True)
-        df_sum = df_wy.groupby('Q').sum()
-        df_sum["cons_use_ss_af"] = df_sum["cons_use_ss"]*float(self.area_of_land_repurposed.split()[0])
+        df_wy.loc[:, ['Q']] = pd.cut(df_wy.index.get_level_values(1).month,
+                            bins=[0, 3, 6, 9, 12],
+                            labels=["Q2", "Q3", "Q4", "Q1"],
+                            right=True)
+
+        df_sum = df_wy.groupby('Q', observed=True).sum().reindex(["Q1", "Q2", "Q3", "Q4"]).fillna(0)
+        df_sum["cons_use_ss_af"] = df_sum["cons_use_ss"] * INCHES_TO_FEET * float(self.area_of_land_repurposed.split()[0])
         df_sum["total_cons_use_ss_af"] = df_sum["cons_use_ss_af"].cumsum()
         fig = self._plot(obj_smb.df_smb)
 
-        self.pdf.print_page(df=df_sum.reset_index(),
+        self.pdf.print_page(fn_pdf_report_out=fn_report_out,
+                            df=df_sum.reset_index(),
                             fig=fig,
-                            quarter='Q4',
-                            water_year=2023,
+                            quarter=quarter,
+                            water_year=water_year,
                             **{"LRPAgreementNumber": self.lrp_agreement_number,
-                                "LRPParticipantName": self.lrp_participant_name,
-                                "AreaofLandRepurposed": self.area_of_land_repurposed.split()[0],
-                                "MinimumWaterUseReduction": self.minimum_water_use_reduction.split()[0],
-                                "BaselineWaterUse": self.baseline_water_user.split()[0],
-                                "MaximumConsumptiveUse": self.maximum_consumptive_use.split()[0]})
+                               "LRPParticipantName": self.lrp_participant_name,
+                               "AreaofLandRepurposed": self.area_of_land_repurposed.split()[0],
+                               "MinimumWaterUseReduction": self.minimum_water_use_reduction.split()[0],
+                               "BaselineWaterUse": self.baseline_water_user.split()[0],
+                               "MaximumConsumptiveUse": self.maximum_consumptive_use.split()[0]})
+
+        return obj_smb
 
     @staticmethod
     def _plot(df, fn_out=None):
-        font = {'family': 'normal',
-                'weight': 'bold',
-                'size': 16}
+        font = {
+            'weight': 'bold',
+            'size': 16}
 
         plt.rc('font', **font)
 
@@ -361,17 +485,17 @@ class Pdf(FPDF):
 
     def header(self):
         pass
-        #self.image('assets/logo.png', 10, 8, 33)
+        # self.image('assets/logo.png', 10, 8, 33)
         # self.set_font('Arial', 'B', 11)
         # self.cell(self.WIDTH - 80)
-        #self.ln(20)
+        # self.ln(20)
 
     def footer(self):
         # Page numbers in the footer
         self.set_y(-15)
-        self.set_font('Arial', 'I', 8)
+        self.set_font('Helvetica', 'I', 8)
         self.set_text_color(128)
-        self.cell(0, 10, 'Page ' + str(self.page_no()), 0, 0, 'C')
+        self.cell(0, 10, 'Page ' + str(self.page_no()), 0)
 
     def page_body(self,
                   df,
@@ -385,10 +509,11 @@ class Pdf(FPDF):
                   BaselineWaterUse,
                   MaximumConsumptiveUse,
                   user_comments=''):
-        self.set_font('Arial', 'B', 11.64)
-        self.multi_cell(0, 5, 'QUARTERLY CONSUMPTIVE WATER USE STATEMENT\n PHASE 1 LAND REPURPOSING PROGRAM (LRP)', align='C', )
+        self.set_font('Helvetica', 'B', 11.64)
+        self.multi_cell(0, 5, 'QUARTERLY CONSUMPTIVE WATER USE STATEMENT\n PHASE 1 LAND REPURPOSING PROGRAM (LRP)',
+                        align='C', )
         self.ln(10)
-        self.set_font('Arial', '', 9.96)
+        self.set_font('Helvetica', '', 9.96)
         self.cell(0, 5, f'LRP Agreement Number: \t\t\t\t {LRPAgreementNumber}', align='L')
         self.ln(5)
         self.cell(0, 5, f'LRP Participant Name: \t\t\t\t {LRPParticipantName}', align='L')
@@ -408,41 +533,59 @@ class Pdf(FPDF):
         self.cell(0, 5, f'Maximum Consumptive Use: \t\t\t\t {MaximumConsumptiveUse} AFY', align='L')
         self.ln(6)
         self._table(df, water_year)
-        self.set_font('Arial', '', 7.5)
-        self.ln(6)
+        self.set_font('Helvetica', '', 7.5)
+        self.ln(2)
         self.cell(0, 5, f'in=inches;   AF=acre-feet;    AFY=acre-feet per year', align='L')
-        self.ln(6)
+        self.ln(3)
         self.cell(0, 5, f'{user_comments}', align='L')
-        self.set_font('Arial', 'B', 9.12)
-        self.ln(5)
+        self.set_font('Helvetica', 'B', 9.12)
+        self.ln(3)
         self.cell(0, 5, 'Based on the Minimum Water Use Reduction under the above LRP Agreement'
                         'and the Water Year Cumulative Consumptive Water Use shown in the table above: ', align='L')
         self.ln(10)
 
-        #self.add_font(fname="dingbats.")
-        #self.set_fallback_fonts(["dingbats"])
-        self.set_font('Arial', '', 9.12)
-        self.set_line_width(1)
-        self.set_fill_color(255,255,255)
-        self.rect(self.get_x()+10, self.get_y(), 5,5, 'DF')
-        self.text(self.get_x()+20, self.get_y(), "This LRP Agreement is in compliance with the Minimum Water Use Reduction requirement")
-        self.ln(5)
-        self.rect(self.get_x()+10, self.get_y(), 5, 5, 'DF')
-        self.text(self.get_x()+20, self.get_y(), "This LRP Agreement is NOT in compliance with the Minimum Water Use Reduction requirement")
+        is_compliant = False
+        if df["total_cons_use_ss_af"].max() <= float(MaximumConsumptiveUse.split()[0]):
+            is_compliant = True
+
+        self.set_font('Helvetica', '', 9.12)
+        self.set_fill_color(255, 255, 255)
+        # self.set_fallback_fonts(["dingbats"])
+        self.set_line_width(0.1)
+        if is_compliant:
+            self.set_fill_color(0, 0, 0)
+            self.rect(self.get_x() + 10, self.get_y(), 3, -3, 'DF')
+            self.text(self.get_x() + 20, self.get_y() - 2,
+                      "This LRP Agreement is in compliance with the Minimum Water Use Reduction requirement")
+            self.ln(4)
+            self.set_fill_color(255, 255, 255)
+            self.rect(self.get_x() + 10, self.get_y(), 3, -3, 'DF')
+            self.text(self.get_x() + 20, self.get_y() - 2,
+                      "This LRP Agreement is NOT in compliance with the Minimum Water Use Reduction requirement")
+        else:
+
+            self.rect(self.get_x() + 10, self.get_y(), 3, -3, 'DF')
+            self.text(self.get_x() + 20, self.get_y(),
+                      "This LRP Agreement is in compliance with the Minimum Water Use Reduction requirement")
+            self.ln(4)
+            self.set_fill_color(0, 0, 0)
+            self.rect(self.get_x() + 10, self.get_y(), 3, -3, 'DF')
+            self.text(self.get_x() + 20, self.get_y(),
+                      "This LRP Agreement is NOT in compliance with the Minimum Water Use Reduction requirement")
 
         self.add_page()
 
         canvas = FigureCanvas(fig)
         canvas.draw()
         img = Image.fromarray(np.asarray(canvas.buffer_rgba()))
-        self.image(img, w=self.epw*0.8, x=fpdf.Align.C)
+        self.image(img, w=self.epw * 0.8, x=fpdf.Align.C)
 
-    def print_page(self, **info):
+    def print_page(self, fn_pdf_report_out, **info):
         self.page_body(**info)
-        self.output("test.pdf")
+        self.output(fn_pdf_report_out)
 
     def _table(self, df, wy=2023):
-        self.set_font('Arial', '', 11.64)
+        self.set_font('Helvetica', '', 11.64)
         headings_style = FontFace(emphasis="ITALICS", fill_color=(128, 128, 128))
         with self.table(text_align="CENTER", headings_style=headings_style, num_heading_rows=2) as table:
             row = table.row()
@@ -458,10 +601,10 @@ class Pdf(FPDF):
             row.cell("Quarter", align='C')
             row.cell("Months, Year", align='C')
 
-            for months, (i,df_row) in zip(["Oct-Dec", "Jan-Mar", "Apr-Jun", "Jul-Sep"], df.iterrows()):
+            for months, (i, df_row) in zip([f"Oct-Dec, {wy-1}", f"Jan-Mar, {wy}", f"Apr-Jun, {wy}", f"Jul-Sep, {wy}"], df.iterrows()):
                 row = table.row()
                 row.cell(df_row["Q"], align='C')
-                row.cell(f"{months}, {wy}", align='C')
+                row.cell(f"{months}", align='C')
                 row.cell("{:.2f}".format(df_row["et_wght_av"]))
                 row.cell("{:.2f}".format(df_row["pp_wght_av"]))
                 row.cell("{:.2f}".format(df_row["ppt_eff"]))
@@ -470,7 +613,7 @@ class Pdf(FPDF):
                 row.cell("{:.2f}".format(df_row["cons_use_ss_af"]))
                 row.cell("{:.2f}".format(df_row["total_cons_use_ss_af"]))
             row = table.row()
-            self.set_font('Arial', 'B', 11.64)
+            self.set_font('Helvetica', 'B', 11.64)
             row.cell("Water Year Total", colspan=2)
             row.cell("{:.2f}".format(df["et_wght_av"].sum()))
             row.cell("{:.2f}".format(df["pp_wght_av"].sum()))
