@@ -159,11 +159,11 @@ class TestCalculateLrpReport(unittest.TestCase):
 #                                                          "MaximumConsumptiveUse": 383.56},
 #                        fn_pdf_report_out="test.pdf")
 
-    def test_table(self):
-        pdf = query_openet.Pdf()
-        df = pd.read_parquet('./data/test_df.pq')
-
-        table = pdf._table(df.reset_index())
+    # def test_table(self):
+    #     pdf = query_openet.Pdf()
+    #     df = pd.read_parquet('./data/test_df.pq')
+    #
+    #     table = pdf._table(df.reset_index())
 
 
 

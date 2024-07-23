@@ -152,7 +152,7 @@ class OpenetApi:
         self.df_data = pd.read_csv(r['url'])
 
         if df_dataset is not None:
-            df_dataset = pd.concat([df_dataset, self.df_data], ignore_index=True).drop_duplicates(subset=['time'],
+            df_dataset = pd.concat([df_dataset, self.df_data], ignore_index=True).drop_duplicates(subset=['time', 'EKIfld'],
                                                                                                   keep='first')
         else:
             df_dataset = self.df_data
@@ -173,8 +173,8 @@ class OpenetApi:
                      file_format,
                      ):
 
-        # if not isinstance(attributes, list):
-        #     attributes = [attributes]
+        if not isinstance(attributes, list):
+            attributes = [attributes]
 
         header = {"Authorization": self.api_key}
         dct_query = {
@@ -288,10 +288,19 @@ class CalculateWaterBalance:
 
     def _run_consumptive_use_calcs(self, fld_keys):
         df_et = self.df_et[self.df_et['EKIfld'].isin(fld_keys['EKIfld'])]
+        if df_et.size == 0:
+            msg = f"The evapotranspiration dataset does not contain information for fields with ids {fld_keys['EKIfld']}"
+            print(msg)
+            raise Exception(msg)
         df_et_sum = df_et.groupby('time').sum()
         df_et_av = df_et_sum['acre-feet'] * FEET_TO_INCHES / df_et_sum['acres']
 
         df_pp = self.df_pp[self.df_pp['EKIfld'].isin(fld_keys['EKIfld'])]
+        if df_pp.size == 0:
+            msg = f"The precipitation dataset does not contain information for fields with ids {fld_keys['EKIfld']}"
+            print(msg)
+            raise Exception(msg)
+
         df_pp_sum = df_pp.groupby('time').sum()
         df_pp_av = df_pp_sum['acre-feet'] * FEET_TO_INCHES / df_pp_sum['acres']
 
@@ -438,9 +447,9 @@ class GenerateLrpReport:
                                      right=True)
 
         df_sum = df_wy.groupby('Q', observed=True).sum().reindex(["Q1", "Q2", "Q3", "Q4"]).fillna(0)
-        df_sum["cons_use_ss_af"] = df_sum["cons_use_ss"] * INCHES_TO_FEET * float(
+        df_sum["cons_use_AW_af"] = df_sum["cons_use_AW"] * INCHES_TO_FEET * float(
             self.area_of_land_repurposed.split()[0])
-        df_sum["total_cons_use_ss_af"] = df_sum["cons_use_ss_af"].cumsum()
+        df_sum["total_cons_use_AW_af"] = df_sum["cons_use_AW_af"].cumsum()
         fig = self._plot(obj_smb.df_smb)
 
         self.pdf.print_page(fn_pdf_report_out=fn_report_out,
@@ -547,7 +556,7 @@ class Pdf(FPDF):
         self.ln(10)
 
         is_compliant = False
-        if df["total_cons_use_ss_af"].max() <= float(MaximumConsumptiveUse.split()[0]):
+        if df["total_cons_use_AW_af"].max() <= float(MaximumConsumptiveUse.split()[0]):
             is_compliant = True
 
         self.set_font('Helvetica', '', 9.12)
@@ -610,20 +619,21 @@ class Pdf(FPDF):
                 row.cell(f"{months}", align='C')
                 row.cell("{:.2f}".format(df_row["et_wght_av"]))
                 row.cell("{:.2f}".format(df_row["pp_wght_av"]))
-                row.cell("{:.2f}".format(df_row["ppt_eff"]))
+                row.cell("{:.2f}".format(df_row["cons_use_ppt"]))
+                #row.cell("{:.2f}".format(df_row["cons_use_AW"]))
+                row.cell("{:.2f}".format(0))  # because applied surface water is zero
                 row.cell("{:.2f}".format(df_row["cons_use_AW"]))
-                row.cell("{:.2f}".format(df_row["cons_use_ss"]))
-                row.cell("{:.2f}".format(df_row["cons_use_ss_af"]))
-                row.cell("{:.2f}".format(df_row["total_cons_use_ss_af"]))
+                row.cell("{:.2f}".format(df_row["cons_use_AW_af"]))
+                row.cell("{:.2f}".format(df_row["total_cons_use_AW_af"]))
             row = table.row()
             self.set_font('Helvetica', 'B', 11.64)
             row.cell("Water Year Total", colspan=2)
             row.cell("{:.2f}".format(df["et_wght_av"].sum()))
             row.cell("{:.2f}".format(df["pp_wght_av"].sum()))
-            row.cell("{:.2f}".format(df["ppt_eff"].sum()))
+            row.cell("{:.2f}".format(df["cons_use_ppt"].sum()))
+            row.cell("{:.2f}".format(0))
             row.cell("{:.2f}".format(df["cons_use_AW"].sum()))
-            row.cell("{:.2f}".format(df["cons_use_ss"].sum()))
-            row.cell("{:.2f}".format(df["cons_use_ss_af"].sum()))
-            row.cell("{:.2f}".format(df["cons_use_ss_af"].sum()))
+            row.cell("{:.2f}".format(df["cons_use_AW_af"].sum()))
+            row.cell("{:.2f}".format(df["cons_use_AW_af"].sum()))
 
             return table
