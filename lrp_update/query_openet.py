@@ -19,6 +19,7 @@ from lrp_update.smb_for_LRP import calc_SMB_for_time_series as smb
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 INCHES_TO_FEET = 1. / 12.
+FEET_TO_INCHES = 12.
 
 
 class OpenetApi:
@@ -288,11 +289,11 @@ class CalculateWaterBalance:
     def _run_consumptive_use_calcs(self, fld_keys):
         df_et = self.df_et[self.df_et['EKIfld'].isin(fld_keys['EKIfld'])]
         df_et_sum = df_et.groupby('time').sum()
-        df_et_av = df_et_sum['acre-feet'] * 12 / df_et_sum['acres']
+        df_et_av = df_et_sum['acre-feet'] * FEET_TO_INCHES / df_et_sum['acres']
 
         df_pp = self.df_pp[self.df_pp['EKIfld'].isin(fld_keys['EKIfld'])]
         df_pp_sum = df_pp.groupby('time').sum()
-        df_pp_av = df_pp_sum['acre-feet'] * 12 / df_pp_sum['acres']
+        df_pp_av = df_pp_sum['acre-feet'] * FEET_TO_INCHES / df_pp_sum['acres']
 
         print(f"calculating consumptive use for {fld_keys['EKIfld']}")
         df_smb = pd.DataFrame(
