@@ -47,12 +47,12 @@ class TestOpenetApi(unittest.TestCase):
                     "JSON"))
 
         self.assertEqual(out[0]["Authorization"], self.open_et.api_key)
-        self.assertEqual(out[1]["attributes"], "EKIfld")
+        self.assertEqual(out[1]["attributes"], ["EKIfld"])
 
     @patch("pandas.DataFrame.to_csv") #prevents the creation of file
     @patch("requests.post")
     def test_update_local_dataset_empty_local_database(self, mock_post, mock_to_csv):
-        vars = ("pr",
+        vars = ("ET",
          "2018-01-01",
          "2023-09-30",
          "monthly",
@@ -61,7 +61,7 @@ class TestOpenetApi(unittest.TestCase):
          "cimis",
          "in",
          "EKIfld",
-         "projects/ee-csheppner/assets/Year1_enrolled_nonrepurposed",
+         "projects/ee-csheppner/assets/Year1_enrolled_nonrepurposed", #nonrepurposed does not exist in the dataset
          "multipolygon",
          "JSON")
 
@@ -70,8 +70,61 @@ class TestOpenetApi(unittest.TestCase):
         mock_post.return_value = response
 
         obj_api = query_openet.OpenetApi('data', 'cKF3SgsGxmGERTbqtuoUFh8gu35FcVAtGpaAtnjfmV32EHl2Jur05wT9BPWz')
-        obj_api.update_local_dataset(*vars)
+        ret = obj_api.update_local_dataset(*vars)
+        assert ret is not None
         assert isinstance(obj_api.df_data, pd.DataFrame)
+
+    @patch("pandas.DataFrame.to_csv") #prevents the creation of file
+    @patch("requests.post")
+    def test_update_local_dataset_local_database_different_date_format(self, mock_post, mock_to_csv):
+        vars = ("pr",
+         "2018-01-01",
+         "2024-09-30",
+         "monthly",
+         "ensemble",
+         "mean",
+         "cimis",
+         "in",
+         "EKIfld",
+         "projects/ee-csheppner/assets/Year1_enrolled_repurposed",
+         "multipolygon",
+         "JSON")
+
+        response = MagicMock(status_code=200)
+        response.json.return_value = {'url': 'data/data_different_date_format/mock_Year1_enrolled_repurposed_pr.csv'}
+        mock_post.return_value = response
+
+        obj_api = query_openet.OpenetApi('data/data_different_date_format', 'dfw33r')
+        ret = obj_api.update_local_dataset(*vars)
+        ref_df = pd.read_csv('data/data_different_date_format/Year1_enrolled_repurposed_pr.csv')
+        ref_df['time'] = pd.to_datetime(ref_df['time'])
+        assert ret.iloc[:3375, :].equals(ref_df)
+
+
+    @patch("pandas.DataFrame.to_csv")  # prevents the creation of file
+    @patch("requests.post")
+    def test_update_local_dataset_local_database_contains_period(self, mock_post, mock_to_csv):
+        vars = ("pr",
+                "2018-01-01",
+                "2023-09-30",
+                "monthly",
+                "ensemble",
+                "mean",
+                "cimis",
+                "in",
+                "EKIfld",
+                "projects/ee-csheppner/assets/Year1_enrolled_repurposed",
+                "multipolygon",
+                "JSON")
+
+        response = MagicMock(status_code=200)
+        response.json.return_value = {'url': 'data/Yr1_nonrepurp_ET.csv'}
+        mock_post.return_value = response
+
+        obj_api = query_openet.OpenetApi('data', 'dfw33r')
+        ret = obj_api.update_local_dataset(*vars)
+        assert ret is None
+        assert obj_api.df_data is None
 
     # @patch("pandas.DataFrame.to_parquet") #prevents the creation of file
     # @patch("requests.post")
@@ -103,7 +156,6 @@ class TestCalculateWaterBalance(unittest.TestCase):
             fn_et='data/Year1_enrolled_repurposed_ET.csv',
             fn_fld_key='data/EKIfld_IDs_key.csv',
             end_date="2023-09-30")
-
 
     def test_constructor_file_not_found(self):
         with self.assertRaises(FileNotFoundError):

@@ -108,14 +108,14 @@ class OpenetApi:
         df_dataset = None
         try:
             df_dataset = pd.read_csv(fn_ds)
+            df_dataset['time'] = pd.to_datetime(df_dataset['time'])
         except FileNotFoundError as e:
             pass
 
         # if pd_dataset exists, check if the requested dates are already there
         if df_dataset is not None:
-            is_within_range = pd.to_datetime(df_dataset['time']).min().asm8 <= pd.to_datetime(
-                start_date) and pd.to_datetime(
-                df_dataset['time']).max().asm8 >= pd.to_datetime(end_date)
+            is_within_range = df_dataset['time'].min().asm8 <= pd.to_datetime(
+                start_date) and df_dataset['time'].max().asm8 >= pd.to_datetime(end_date)
             if is_within_range:
                 print(f"Requested data range {start_date}:{end_date} already in {fn_ds}")
                 return
@@ -150,6 +150,7 @@ class OpenetApi:
         r = resp.json()
 
         self.df_data = pd.read_csv(r['url'])
+        self.df_data['time'] = pd.to_datetime(self.df_data['time'])
 
         if df_dataset is not None:
             df_dataset = pd.concat([df_dataset, self.df_data], ignore_index=True).drop_duplicates(subset=['time', 'EKIfld'],
@@ -157,7 +158,9 @@ class OpenetApi:
         else:
             df_dataset = self.df_data
 
-        df_dataset.to_csv(fn_ds)
+        df_dataset.to_csv(fn_ds, index=False)
+
+        return df_dataset
 
     def _build_query(self,
                      variable,
