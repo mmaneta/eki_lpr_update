@@ -218,10 +218,5 @@ class TestCalculateLrpReport(unittest.TestCase):
     #     table = pdf._table(df.reset_index())
 
 
-
-
-
-
-
 if __name__ == '__main__':
     unittest.main()
