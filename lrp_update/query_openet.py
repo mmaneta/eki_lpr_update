@@ -13,7 +13,7 @@ import pypdf
 import requests
 from PIL import Image
 from fpdf import FPDF
-from fpdf.fonts import FontFace
+from fpdf.fonts import CoreFont
 # Import Chris Heppner's SMB functions
 from lrp_update.smb_for_LRP import calc_SMB_for_time_series as smb
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
@@ -600,7 +600,7 @@ class Pdf(FPDF):
 
     def _table(self, df, wy=2023):
         self.set_font('Helvetica', '', 11.64)
-        headings_style = FontFace(emphasis="ITALICS", fill_color=(128, 128, 128))
+        headings_style = CoreFont(emphasis="ITALICS", fill_color=(128, 128, 128))
         with self.table(text_align="CENTER", headings_style=headings_style, num_heading_rows=2) as table:
             row = table.row()
             row.cell("Reporting Period", align='C', colspan=2)
