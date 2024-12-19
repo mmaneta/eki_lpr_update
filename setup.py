@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='lrp_update',
-    version='0.0.2dev',
+    version='0.0.3dev',
     packages=['lrp_update'],
     url='',
     license='',
