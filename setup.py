@@ -9,5 +9,5 @@ setup(
     author='Marco Maneta',
     author_email='mmaneta@ekiconsult.com',
     description='',
-    install_requires=["requests", "matplotlib", "jupyter", "pandas", "pyarrow", "numpy", "pypdf", "fpdf", "pillow"]
+    install_requires=["requests", "matplotlib", "jupyter", "pandas", "pyarrow", "numpy",  "fpdf2", "pillow"]
 )
